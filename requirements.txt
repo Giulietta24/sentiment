@@ -2,4 +2,4 @@ streamlit
 yfinance
 pandas
 transformers
-torch --index-url https://download.pytorch.org/rls/lightweight
+torch --index-url https://download.pytorch.org/whl/cpu
