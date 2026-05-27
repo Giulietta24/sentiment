@@ -3,6 +3,4 @@ streamlit
 pandas
 numpy
 yfinance
-transformers
-torch
-requests
+openpyxl
