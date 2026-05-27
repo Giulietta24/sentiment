@@ -1,6 +1,5 @@
-
-streamlit
-pandas
-numpy
-yfinance
-openpyxl
+streamlit==1.x.x
+pandas==2.x.x
+numpy==1.26.x
+yfinance==0.2.x
+openpyxl==3.x.x
