@@ -14,10 +14,16 @@ st.write("### 🔍 Analyzing tickers:")
 # -----------------------
 def safe_load_price(ticker):
     try:
-        df = yf.download(ticker, period="6mo", interval="1d")
+        # group_by="column" ensures standard formatting
+        df = yf.download(ticker, period="6mo", interval="1d", group_by="column")
+        
         if df is None or df.empty:
             st.warning(f"⚠️ No price data returned for **{ticker}**")
             return None
+
+        # FIX: Flatten Multi-Index columns if yfinance returns them (e.g., ('Close', 'IWM') -> 'Close')
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
 
         if "Close" not in df.columns:
             st.warning(f"⚠️ Missing 'Close' column for **{ticker}**")
@@ -52,7 +58,13 @@ def safe_price_change(price_df):
         if pd.isna(last) or pd.isna(last_30):
             return None
 
-        return ((last - last_30) / last_30) * 100
+        # Handle cases where 'last' might still be a Series
+        if isinstance(last, pd.Series):
+            last = last.iloc[0]
+        if isinstance(last_30, pd.Series):
+            last_30 = last_30.iloc[0]
+
+        return float(((last - last_30) / last_30) * 100)
 
     except Exception:
         return None
@@ -61,7 +73,11 @@ def safe_price_change(price_df):
 # ----------------------------
 # NEWS / NARRATIVE SENTIMENT
 # ----------------------------
-sentiment_model = pipeline("sentiment-analysis")
+@st.cache_resource # Keeps your app fast so it doesn't reload the model on every click
+def load_sentiment_model():
+    return pipeline("sentiment-analysis")
+
+sentiment_model = load_sentiment_model()
 
 def analyze_sentiment(texts):
     if not texts:
@@ -76,7 +92,8 @@ def analyze_sentiment(texts):
 # -----------------------------------------
 # MAIN APPLICATION
 # -----------------------------------------
-tickers = ["IWM", "IJR", "FSC_L", "SMEU"]
+# FIX: Changed 'FSC_L' to 'FSC.L' and added '.L' suffix to 'SMEU' for Yahoo Finance compatibility
+tickers = ["IWM", "IJR", "FSC.L", "SMEU.L"]
 
 st.json(tickers)
 
@@ -109,6 +126,9 @@ for ticker in tickers:
         "Sentiment Score": sentiments[0]["score"]
     })
 
-df = pd.DataFrame(results)
-st.write("### 📌 Final Output")
-st.dataframe(df)
+if results:
+    df = pd.DataFrame(results)
+    st.write("### 📌 Final Output")
+    st.dataframe(df)
+else:
+    st.info("No data successfully processed.")
