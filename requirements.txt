@@ -1,5 +1,9 @@
 streamlit
-yfinance
 pandas
+numpy
+yfinance
 transformers
-torch --index-url https://download.pytorch.org/whl/cpu
+torch
+requests
+plotly
+openpyxl

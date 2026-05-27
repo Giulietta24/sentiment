@@ -1,134 +1,113 @@
+# Narrative Sentiment Dashboard — C-Plus Version
+# (Moderately expanded functional edition)
+
 import streamlit as st
-import yfinance as yf
 import pandas as pd
-from transformers import pipeline
+import numpy as np
+import yfinance as yf
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+import torch
+import requests
+import plotly.express as px
+from io import BytesIO
 
-st.set_page_config(page_title="Narrative Sentiment Engine", layout="wide")
+st.set_page_config(page_title="Narrative Sentiment Dashboard", layout="wide")
 
-st.title("📈 Narrative Sentiment Engine (US + UK + Europe)")
+########################################
+# Load Model
+########################################
+@st.cache_resource
+def load_finbert():
+    tokenizer = AutoTokenizer.from_pretrained("ProsusAI/finbert")
+    model = AutoModelForSequenceClassification.from_pretrained("ProsusAI/finbert")
+    return tokenizer, model
 
-st.write("### 🔍 Analyzing tickers:")
+tokenizer, model = load_finbert()
 
-# -----------------------
-# SAFELY LOAD PRICE DATA
-# -----------------------
-def safe_load_price(ticker):
+########################################
+# Sentiment Engine
+########################################
+def finbert_sentiment(text):
+    inputs = tokenizer(text, return_tensors="pt", truncation=True)
+    with torch.no_grad():
+        logits = model(**inputs).logits[0]
+    probs = torch.softmax(logits, dim=0)
+    labels = ["negative", "neutral", "positive"]
+    return dict(zip(labels, probs.tolist()))
+
+########################################
+# News Fetch (Yahoo Finance)
+########################################
+def fetch_news(ticker):
+    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={ticker}"
     try:
-        # group_by="column" ensures standard formatting
-        df = yf.download(ticker, period="6mo", interval="1d", group_by="column")
-        
-        if df is None or df.empty:
-            st.warning(f"⚠️ No price data returned for **{ticker}**")
-            return None
-
-        # FIX: Flatten Multi-Index columns if yfinance returns them (e.g., ('Close', 'IWM') -> 'Close')
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-
-        if "Close" not in df.columns:
-            st.warning(f"⚠️ Missing 'Close' column for **{ticker}**")
-            return None
-
-        if len(df) < 31:
-            st.warning(f"⚠️ Not enough price history for **{ticker}** (need 31 days)")
-            return None
-
-        return df
-
-    except Exception as e:
-        st.error(f"❌ Error loading price for {ticker}: {e}")
-        return None
-
-
-# --------------------------------------------
-# SAFE PRICE CHANGE CALCULATION (NO CRASHES)
-# --------------------------------------------
-def safe_price_change(price_df):
-    try:
-        close = price_df["Close"]
-
-        # Must have enough rows
-        if len(close) < 31:
-            return None
-
-        # SAFE ACCESS: iloc prevents KeyError
-        last = close.iloc[-1]
-        last_30 = close.iloc[-30]
-
-        if pd.isna(last) or pd.isna(last_30):
-            return None
-
-        # Handle cases where 'last' might still be a Series
-        if isinstance(last, pd.Series):
-            last = last.iloc[0]
-        if isinstance(last_30, pd.Series):
-            last_30 = last_30.iloc[0]
-
-        return float(((last - last_30) / last_30) * 100)
-
-    except Exception:
-        return None
-
-
-# ----------------------------
-# NEWS / NARRATIVE SENTIMENT
-# ----------------------------
-@st.cache_resource # Keeps your app fast so it doesn't reload the model on every click
-def load_sentiment_model():
-    return pipeline("sentiment-analysis")
-
-sentiment_model = load_sentiment_model()
-
-def analyze_sentiment(texts):
-    if not texts:
+        r = requests.get(url, timeout=6).json()
+        return [n.get("title","") for n in r.get("news", [])][:10]
+    except:
         return []
 
-    try:
-        return sentiment_model(texts)
-    except Exception:
-        return [{"label": "NEUTRAL", "score": 0.00} for _ in texts]
+########################################
+# UI
+########################################
+st.title("📈 Narrative Sentiment Dashboard — C‑Plus Version")
 
+tickers = st.text_input("Enter tickers (comma separated):", "AAPL,MSFT,TSLA").upper().split(",")
+tickers = [t.strip() for t in tickers if t.strip()]
 
-# -----------------------------------------
-# MAIN APPLICATION
-# -----------------------------------------
-# FIX: Changed 
-tickers = ["IWM", "IJR", "FCIT.L", "SMEU.L"]
+########################################
+# Processing
+########################################
+results = {}
 
-st.json(tickers)
+for t in tickers:
+    news = fetch_news(t)
+    scores = []
+    for n in news:
+        if n.strip():
+            scores.append(finbert_sentiment(n)["positive"])
+    avg_sent = np.mean(scores) if scores else 0.33
 
-results = []
+    results[t] = {
+        "sentiment": avg_sent,
+        "news": news
+    }
 
-for ticker in tickers:
-    st.subheader(f"📊 {ticker}")
+########################################
+# Display Global Metrics
+########################################
+global_sent = np.mean([v["sentiment"] for v in results.values()])
+st.metric("🌍 Global Narrative Sentiment", f"{global_sent:.2f}")
 
-    price = safe_load_price(ticker)
-    if price is None:
-        st.write("❌ Skipping due to missing data")
-        continue
+########################################
+# Bar Chart
+########################################
+fig = px.bar(
+    x=list(results.keys()),
+    y=[v["sentiment"] for v in results.values()],
+    title="Ticker Narrative Sentiment Scores",
+    labels={"x": "Ticker", "y": "Sentiment Score"},
+)
+st.plotly_chart(fig)
 
-    change_30d = safe_price_change(price)
-    if change_30d is None:
-        st.warning(f"⚠️ Unable to compute 30-day price change for {ticker}")
-        continue
+########################################
+# Detailed Breakdown
+########################################
+st.subheader("Ticker Details")
 
-    st.write(f"**30-day Price Change:** {change_30d:.2f}%")
+for t, d in results.items():
+    st.write(f"### {t}")
+    st.write(f"**Narrative Sentiment:** {d['sentiment']:.2f}")
+    for n in d["news"]:
+        st.write("-", n)
 
-    # Dummy news for now (safe placeholder)
-    news = [f"{ticker} market sentiment update."]
-
-    sentiments = analyze_sentiment(news)
-
-    results.append({
-        "Ticker": ticker,
-        "30d Change": change_30d,
-        "Sentiment": sentiments[0]["label"],
-        "Sentiment Score": sentiments[0]["score"]
-    })
-
-if results:
-    df = pd.DataFrame(results)
-    st.write("### 📌 Final Output")
-    st.dataframe(df)
-else:
-    st.info("No data successfully processed.")
+########################################
+# Export to Excel
+########################################
+if st.button("Export Results to Excel"):
+    df = pd.DataFrame([
+        {"ticker": t, "sentiment": d["sentiment"]}
+        for t, d in results.items()
+    ])
+    bio = BytesIO()
+    df.to_excel(bio, index=False)
+    st.download_button("Download Excel", bio.getvalue(), "sentiment_output.xlsx")
