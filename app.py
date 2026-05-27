@@ -92,8 +92,8 @@ def analyze_sentiment(texts):
 # -----------------------------------------
 # MAIN APPLICATION
 # -----------------------------------------
-# FIX: Changed 'FSC_L' to 'FSC.L' and added '.L' suffix to 'SMEU' for Yahoo Finance compatibility
-tickers = ["IWM", "IJR", "FSC.L", "SMEU.L"]
+# FIX: Changed 
+tickers = ["IWM", "IJR", "FCIT.L", "SMEU.L"]
 
 st.json(tickers)
 
